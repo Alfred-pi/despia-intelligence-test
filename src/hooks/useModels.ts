@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { intelligence, type Model } from '@/lib/intelligence';
+import {
+  downloadModel,
+  listAvailableModels,
+  listInstalledModels,
+  removeModel,
+  type Model,
+} from '@/lib/intelligence';
 import { useChatStore } from '@/store/chat';
 
 export interface ModelsState {
@@ -20,17 +26,11 @@ export function useModels() {
   const refresh = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const [availableRaw, installedRaw] = await Promise.all([
-        intelligence.models.available(),
-        intelligence.models.installed(),
+      const [available, installed] = await Promise.all([
+        listAvailableModels(),
+        listInstalledModels(),
       ]);
-      const installed = Array.isArray(installedRaw) ? installedRaw : [];
-      setState({
-        available: availableRaw,
-        installed,
-        loading: false,
-        error: null,
-      });
+      setState({ available, installed, loading: false, error: null });
     } catch (err) {
       setState({
         available: [],
@@ -45,23 +45,26 @@ export function useModels() {
     void refresh();
   }, [refresh]);
 
-  const download = useCallback((modelId: string) => {
-    const store = useChatStore.getState();
-    store.setDownloadStart(modelId);
-    intelligence.models.download(modelId, {
-      onStart: () => store.setDownloadStart(modelId),
-      onProgress: (pct) => store.setDownloadProgress(modelId, pct),
-      onEnd: () => {
-        store.setDownloadEnd(modelId);
-        void refresh();
-      },
-      onError: (err) => store.setDownloadError(modelId, err),
-    });
-  }, [refresh]);
+  const download = useCallback(
+    (modelId: string) => {
+      const store = useChatStore.getState();
+      store.setDownloadStart(modelId);
+      downloadModel(modelId, {
+        onStart: () => store.setDownloadStart(modelId),
+        onProgress: (pct) => store.setDownloadProgress(modelId, pct),
+        onEnd: () => {
+          store.setDownloadEnd(modelId);
+          void refresh();
+        },
+        onError: (err) => store.setDownloadError(modelId, err),
+      });
+    },
+    [refresh],
+  );
 
   const remove = useCallback(
     async (modelId: string) => {
-      await intelligence.models.remove(modelId);
+      await removeModel(modelId);
       await refresh();
     },
     [refresh],

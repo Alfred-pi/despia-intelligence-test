@@ -2797,3 +2797,22 @@ body[data-sheet-open="true"] .nav-container {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+.preview-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9998;
+  padding: calc(var(--safe-top, 0px) + 6px) 16px 6px;
+  background: linear-gradient(180deg, rgba(99,102,241,0.18), rgba(99,102,241,0.08));
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid rgba(99,102,241,0.25);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  pointer-events: none;
+}
