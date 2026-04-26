@@ -17,6 +17,19 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // One-shot cleanup of the previous PWA service worker + caches.
+      // The first deploy registered a SW that intercepted requests and could
+      // serve stale 404 responses; this kills it for returning visitors.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          regs.forEach((r) => r.unregister());
+        });
+      }
+      if (typeof caches !== 'undefined') {
+        caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
