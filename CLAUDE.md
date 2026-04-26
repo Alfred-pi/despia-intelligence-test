@@ -79,6 +79,46 @@ Tous en int4 (rapide) et int8 (qualité).
 - idb (IndexedDB wrapper)
 - HashRouter (compat gh-pages)
 
+## Apple App Store — IA locale: AUTORISÉE, aucun problème
+
+### Pourquoi Apple valide
+- **Privacy narrative Apple** = data reste on-device. L'IA locale est exactement leur positioning (Apple Intelligence).
+- Plusieurs apps IA locale déjà sur l'App Store et approuvées: Private LLM, On-Device AI, Haplo AI, Apollo AI, NoemaAI, Nomad AI.
+- Apple encourage Core ML + Metal + Neural Engine pour l'inference locale.
+
+### Apps de référence sur l'App Store
+| App | Modèles | Prix |
+|-----|---------|------|
+| Private LLM | Llama 3.1/3.2, Qwen3, Gemma, DeepSeek, Mixtral | Payant |
+| On-Device AI | Qwen3, DeepSeek R1, QwenLong + import GGUF custom | Freemium |
+| Haplo AI | Small models, easy download | Gratuit |
+| Apollo AI | Open-source, llama.cpp | Gratuit |
+| NoemaAI | Gros modèles (FlashAttention) | Payant |
+
+### Pattern approuvé par Apple (celui qu'on utilise)
+```
+App Store binaire (petit, <100MB)
+  → Après install: écran "Download a model"
+  → Téléchargement depuis Hugging Face
+  → Stocké dans app container
+  → Inference locale (despia-intelligence runtime)
+```
+Les modèles NE sont PAS dans le binaire. Téléchargés après install. Apple est OK avec ça.
+
+### Guidelines Apple à respecter
+- **5.1.2(i):** Si données envoyées au cloud → disclosure + consent. → **Nous: RIEN ne sort. On-device = exempt.**
+- **2.5.2:** Pas d'app vibe-codée de mauvaise qualité. → **On code propre.**
+- **Pas de bypass IAP:** Utiliser StoreKit/RevenueCat pour digital. Pas Stripe direct. → **RevenueCat = OK.**
+
+### Limites techniques Apple
+- Binaire: max 4GB total, 60MB par exécutable
+- On-Demand Resources: max 8GB/asset pack (iOS 18+)
+- Download cellulaire: recommandé <200MB pour binaire initial. Modèles se download en WiFi.
+- Notre app = petit binaire + modèles téléchargés après = **zéro problème de taille.**
+
+### Avantage marketing
+"100% private. Your data never leaves your phone." = argument de vente massif sur l'App Store.
+
 ## Deploy
 - Repo public **Alfred-pi/despia-intelligence-test**
 - GitHub Actions → gh-pages

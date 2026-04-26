@@ -8,27 +8,66 @@
     <meta name="apple-mobile-web-app-title" content="Intelligence" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <style>
+      html, body { background: #000; margin: 0; padding: 0; }
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      #splash.is-fading { opacity: 0; pointer-events: none; }
+      #splash-mark {
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        background:
+          radial-gradient(circle at 30% 30%, #818CF8, transparent 60%),
+          linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+        box-shadow: 0 0 60px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255,255,255,0.18);
+        animation: splash-breathe 1.6s ease-in-out infinite;
+      }
+      @keyframes splash-breathe {
+        0%, 100% { transform: scale(0.9); opacity: 0.85; }
+        50% { transform: scale(1); opacity: 1; }
+      }
+    </style>
 
     <title>Despia Intelligence</title>
   </head>
   <body>
+    <div id="splash" aria-hidden="true">
+      <div id="splash-mark"></div>
+    </div>
     <div id="root"></div>
+
     <script>
-      // One-shot cleanup of the previous PWA service worker + caches.
-      // The first deploy registered a SW that intercepted requests and could
-      // serve stale 404 responses; this kills it for returning visitors.
+      // Stale PWA service worker cleanup (left over from initial deploy).
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then((regs) => {
-          regs.forEach((r) => r.unregister());
-        });
+        navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
       }
       if (typeof caches !== 'undefined') {
         caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
       }
+
+      // Hold the splash for 4s so the native Despia splash animation has room to play.
+      window.__splashRemove = function () {
+        var el = document.getElementById('splash');
+        if (!el) return;
+        el.classList.add('is-fading');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 500);
+      };
+      setTimeout(function () { window.__splashRemove(); }, 4000);
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
