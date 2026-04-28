@@ -156,18 +156,38 @@ function isLive() {
 }
 
 function onlyText(models: Model[]): Model[] {
-  return models.filter((m) => m.category === 'text' || m.category === 'text');
+  // Tolerate `category` missing or non-text — Despia text runtime is text-only today.
+  return models.filter((m) => !m.category || m.category === 'text');
+}
+
+const AVAILABLE_POLL_DEADLINE_MS = 6000;
+const AVAILABLE_POLL_INTERVAL_MS = 200;
+
+// The SDK reads window.intelligence.availableModels synchronously and returns []
+// if the native runtime has not populated it yet. Poll for a few seconds before
+// falling back to the curated catalog so the picker has something to show.
+async function pollAvailableModels(): Promise<Model[]> {
+  const deadline = Date.now() + AVAILABLE_POLL_DEADLINE_MS;
+  while (Date.now() < deadline) {
+    const list = await realIntel.models.available();
+    if (Array.isArray(list) && list.length > 0) return list;
+    await new Promise<void>((r) => setTimeout(r, AVAILABLE_POLL_INTERVAL_MS));
+  }
+  return [];
 }
 
 export async function listAvailableModels(): Promise<Model[]> {
-  if (isLive()) {
-    const live = await realIntel.models.available();
-    if (Array.isArray(live) && live.length > 0) return onlyText(live);
-    // Runtime is live but the SDK gave us no catalog yet — fall back to the
-    // curated text-model list so the picker has something to show.
-    return MOCK_CATALOG;
-  }
+  if (!isLive()) return MOCK_CATALOG;
+  const live = await pollAvailableModels();
+  if (live.length > 0) return onlyText(live);
+  // Runtime is live but never populated the catalog. Fall back to the curated
+  // text-model list from the official SDK README so the picker is usable.
   return MOCK_CATALOG;
+}
+
+export function isCatalogFallback(catalog: Model[]): boolean {
+  if (catalog.length !== MOCK_CATALOG.length) return false;
+  return catalog.every((m, i) => m.id === MOCK_CATALOG[i].id);
 }
 
 export async function listInstalledModels(): Promise<Model[]> {

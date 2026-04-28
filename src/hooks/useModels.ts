@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   downloadModel,
+  isCatalogFallback,
   listAvailableModels,
   listInstalledModels,
   removeModel,
@@ -13,6 +14,7 @@ export interface ModelsState {
   installed: Model[];
   loading: boolean;
   error: string | null;
+  catalogFallback: boolean;
 }
 
 export function useModels() {
@@ -21,6 +23,7 @@ export function useModels() {
     installed: [],
     loading: true,
     error: null,
+    catalogFallback: false,
   });
 
   const refresh = useCallback(async () => {
@@ -30,13 +33,20 @@ export function useModels() {
         listAvailableModels(),
         listInstalledModels(),
       ]);
-      setState({ available, installed, loading: false, error: null });
+      setState({
+        available,
+        installed,
+        loading: false,
+        error: null,
+        catalogFallback: isCatalogFallback(available),
+      });
     } catch (err) {
       setState({
         available: [],
         installed: [],
         loading: false,
         error: err instanceof Error ? err.message : String(err),
+        catalogFallback: false,
       });
     }
   }, []);

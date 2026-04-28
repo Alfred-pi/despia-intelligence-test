@@ -11,7 +11,7 @@ import { haptic } from '@/lib/haptics';
 
 export function ModelPickerPage() {
   const navigate = useNavigate();
-  const { available, installed, loading, error, download, remove, refresh } = useModels();
+  const { available, installed, loading, error, catalogFallback, download, remove, refresh } = useModels();
   const activeModelId = useChatStore((s) => s.activeModelId);
   const setActiveModel = useChatStore((s) => s.setActiveModel);
   const downloads = useChatStore((s) => s.downloads);
@@ -95,6 +95,23 @@ export function ModelPickerPage() {
             <p>Could not load catalog</p>
             <span>{error}</span>
             <button type="button" onClick={refresh}>Retry</button>
+          </div>
+        )}
+
+        {loading && available.length === 0 && (
+          <div className="loading-card">
+            <div className="loading-card-spinner" />
+            <span>Loading model catalog…</span>
+          </div>
+        )}
+
+        {catalogFallback && !loading && (
+          <div className="info-card">
+            <p>Showing the official text model list.</p>
+            <span>
+              The runtime did not push its catalog yet. These IDs are from the
+              SDK README — try Download to see if the native runtime accepts them.
+            </span>
           </div>
         )}
 
