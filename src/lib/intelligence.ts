@@ -79,31 +79,27 @@ let probedOnce = false;
 export async function probeRuntime(): Promise<RuntimeReport> {
   if (probedOnce) return runtimeReport;
   probedOnce = true;
+  // Decision is driven by realIntel.runtime.ok (synchronous, set at SDK import).
+  // The probe only enriches diagnostics: how many models the catalog returns
+  // when we actually call the SDK. It does NOT flip ok back to false.
   try {
     const list = await realIntel.models.available();
     const probedAvailable = Array.isArray(list) ? list.length : 0;
-    if (probedAvailable > 0 && realIntel.runtime.ok) {
-      publishReport({
-        ...runtimeReport,
-        ok: true,
-        status: 'ready',
-        message: null,
-        source: 'sdk',
-        diagnostics: { ...runtimeReport.diagnostics, probedAvailable },
-      });
-    } else {
-      publishReport({
-        ...runtimeReport,
-        ok: false,
-        source: 'mock',
-        diagnostics: { ...runtimeReport.diagnostics, probedAvailable },
-      });
-    }
+    publishReport({
+      ...runtimeReport,
+      ok: realIntel.runtime.ok,
+      source: realIntel.runtime.ok ? 'sdk' : 'mock',
+      diagnostics: {
+        ...runtimeReport.diagnostics,
+        probedAvailable,
+        sdkRuntimeOk: realIntel.runtime.ok,
+      },
+    });
   } catch {
     publishReport({
       ...runtimeReport,
-      ok: false,
-      source: 'mock',
+      ok: realIntel.runtime.ok,
+      source: realIntel.runtime.ok ? 'sdk' : 'mock',
       diagnostics: { ...runtimeReport.diagnostics, probedAvailable: 0 },
     });
   }
@@ -153,8 +149,10 @@ function emit(event: DownloadEvent, ...args: unknown[]) {
   for (const fn of mockListeners[event]) (fn as (...a: unknown[]) => void)(...args);
 }
 
+// Single source of truth: trust the SDK at the moment of the call.
+// realIntel.runtime is fixed at SDK import per Despia spec.
 function isLive() {
-  return runtimeReport.ok;
+  return realIntel.runtime.ok;
 }
 
 export async function listAvailableModels(): Promise<Model[]> {

@@ -6,6 +6,7 @@ import { ModelPickerPage } from '@/pages/ModelPickerPage';
 import { DebugOverlay } from '@/components/chat/DebugOverlay';
 import {
   getRuntimeReport,
+  listInstalledModels,
   onDownloadEvent,
   probeRuntime,
   subscribeRuntimeReport,
@@ -25,9 +26,20 @@ export default function App() {
   const [runtime, setRuntime] = useState<RuntimeReport>(getRuntimeReport());
 
   useEffect(() => {
-    void hydrate();
-    void probeRuntime();
     const unsubscribe = subscribeRuntimeReport(setRuntime);
+    void (async () => {
+      await hydrate();
+      await probeRuntime();
+      // If we are now live but the active model (often a mock leftover)
+      // is not actually installed, reset it so the user picks a real one.
+      const store = useChatStore.getState();
+      if (getRuntimeReport().ok && store.activeModelId) {
+        const installed = await listInstalledModels();
+        if (!installed.some((m) => m.id === store.activeModelId)) {
+          useChatStore.setState({ activeModelId: null });
+        }
+      }
+    })();
     return unsubscribe;
   }, [hydrate]);
 
