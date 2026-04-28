@@ -26,25 +26,47 @@ export type DownloadEvent =
   | 'downloadEnd'
   | 'downloadError';
 
+export type Readiness = 'ready' | 'flagged-only' | 'outdated' | 'unavailable';
+
 export type RuntimeReport = {
   ok: boolean;
   status: RuntimeStatus;
   message: string | null;
   source: 'sdk' | 'probe' | 'mock';
+  readiness: Readiness;
   diagnostics: {
     nativeRuntime: string | null;
     userAgent: string;
     sdkRuntimeOk: boolean;
     sdkRuntimeStatus: RuntimeStatus;
     probedAvailable: number | null;
+    registrarsExposed: boolean;
   };
 };
 
+function checkRegistrarsExposed(): boolean {
+  if (typeof window === 'undefined') return false;
+  const intel = (window as unknown as { intelligence?: Record<string, unknown> }).intelligence;
+  if (!intel) return false;
+  return typeof intel.onDownloadStart === 'function';
+}
+
+function deriveReadiness(
+  sdkOk: boolean,
+  sdkStatus: RuntimeStatus,
+  registrarsExposed: boolean,
+): Readiness {
+  if (!sdkOk) return sdkStatus as Readiness;
+  return registrarsExposed ? 'ready' : 'flagged-only';
+}
+
+const initialRegistrars = checkRegistrarsExposed();
 let runtimeReport: RuntimeReport = {
   ok: realIntel.runtime.ok,
   status: realIntel.runtime.status,
   message: realIntel.runtime.message,
   source: realIntel.runtime.ok ? 'sdk' : 'mock',
+  readiness: deriveReadiness(realIntel.runtime.ok, realIntel.runtime.status, initialRegistrars),
   diagnostics: {
     nativeRuntime:
       typeof window !== 'undefined'
@@ -54,6 +76,7 @@ let runtimeReport: RuntimeReport = {
     sdkRuntimeOk: realIntel.runtime.ok,
     sdkRuntimeStatus: realIntel.runtime.status,
     probedAvailable: null,
+    registrarsExposed: initialRegistrars,
   },
 };
 
@@ -133,22 +156,31 @@ export async function probeRuntime(): Promise<RuntimeReport> {
   try {
     const list = await realIntel.models.available();
     const probedAvailable = Array.isArray(list) ? list.length : 0;
+    const registrarsExposed = checkRegistrarsExposed();
     publishReport({
       ...runtimeReport,
       ok: realIntel.runtime.ok,
       source: realIntel.runtime.ok ? 'sdk' : 'mock',
+      readiness: deriveReadiness(realIntel.runtime.ok, realIntel.runtime.status, registrarsExposed),
       diagnostics: {
         ...runtimeReport.diagnostics,
         probedAvailable,
         sdkRuntimeOk: realIntel.runtime.ok,
+        registrarsExposed,
       },
     });
   } catch {
+    const registrarsExposed = checkRegistrarsExposed();
     publishReport({
       ...runtimeReport,
       ok: realIntel.runtime.ok,
       source: realIntel.runtime.ok ? 'sdk' : 'mock',
-      diagnostics: { ...runtimeReport.diagnostics, probedAvailable: 0 },
+      readiness: deriveReadiness(realIntel.runtime.ok, realIntel.runtime.status, registrarsExposed),
+      diagnostics: {
+        ...runtimeReport.diagnostics,
+        probedAvailable: 0,
+        registrarsExposed,
+      },
     });
   }
   return runtimeReport;
@@ -197,10 +229,12 @@ function emit(event: DownloadEvent, ...args: unknown[]) {
   for (const fn of mockListeners[event]) (fn as (...a: unknown[]) => void)(...args);
 }
 
-// Single source of truth: trust the SDK at the moment of the call.
-// realIntel.runtime is fixed at SDK import per Despia spec.
+// Live = SDK runtime ready AND the native side actually exposed its event
+// registrars on window.intelligence. Without registrars the runtime can
+// neither stream tokens nor report download progress, so we fall back to
+// the mock UX rather than hanging on commands that go into the void.
 function isLive() {
-  return realIntel.runtime.ok;
+  return realIntel.runtime.ok && checkRegistrarsExposed();
 }
 
 function onlyText(models: Model[]): Model[] {

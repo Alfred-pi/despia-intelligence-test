@@ -10,10 +10,12 @@ interface Props {
 export function RuntimeBanner({ runtime }: Props) {
   const [open, setOpen] = useState(false);
 
-  if (runtime.ok) return null;
+  if (runtime.readiness === 'ready') return null;
 
   const headline =
-    runtime.status === 'outdated'
+    runtime.readiness === 'flagged-only'
+      ? 'Despia AI runtime is partial — wait for the next build'
+      : runtime.status === 'outdated'
       ? 'Update Despia to use on-device AI'
       : 'Preview mode — responses are simulated';
 
@@ -83,13 +85,19 @@ export function RuntimeBanner({ runtime }: Props) {
                       : `${runtime.diagnostics.probedAvailable} models`}
                   </span>
                 </p>
+                <p className="runtime-modal-tech">
+                  <span>onDownloadStart registrar</span>
+                  <span>{runtime.diagnostics.registrarsExposed ? 'exposed ✓' : 'missing ✗'}</span>
+                </p>
                 <p className="runtime-modal-tech runtime-modal-ua">
                   <span>userAgent</span>
                   <span>{runtime.diagnostics.userAgent}</span>
                 </p>
                 <div className="runtime-modal-divider" />
                 <p className="runtime-modal-help">
-                  {runtime.status === 'outdated'
+                  {runtime.readiness === 'flagged-only'
+                    ? 'Despia activated the runtime flag but did not expose the AI registrars (onDownloadStart, onDownloadProgress, etc.) on window.intelligence. Downloads and inference cannot run yet. Wait for the next Despia build, then rebuild this app in Despia Studio.'
+                    : runtime.status === 'outdated'
                     ? 'Your Despia app sees this URL but the on-device intelligence runtime is not available. Update Despia to the latest version, then reopen this app.'
                     : 'On-device inference only runs inside the Despia native runtime. The chat UI works here for design review.'}
                 </p>

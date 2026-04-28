@@ -3149,3 +3149,8 @@ html, body {
   line-height: 1.5;
   color: var(--ink-secondary);
 }
+
+.ios-status-dot.readiness-ready { background: var(--success); box-shadow: 0 0 6px rgba(52,211,153,0.6); }
+.ios-status-dot.readiness-flagged-only { background: var(--warn); }
+.ios-status-dot.readiness-outdated { background: var(--warn); }
+.ios-status-dot.readiness-unavailable { background: var(--ink-quaternary); }

@@ -74,7 +74,7 @@ export function ChatPage({ runtime }: Props) {
           onClick={() => navigate('/models')}
         >
           <span className="ios-header-eyebrow">
-            <span className={`ios-status-dot status-${runtime.status}`} />
+            <span className={`ios-status-dot readiness-${runtime.readiness}`} />
             <span>{runtimeLabel(runtime)}</span>
           </span>
           <span className="ios-header-title">
@@ -133,7 +133,8 @@ export function ChatPage({ runtime }: Props) {
 }
 
 function runtimeLabel(runtime: RuntimeReport): string {
-  if (runtime.ok) return 'Live · on-device';
+  if (runtime.readiness === 'ready') return 'Live · on-device';
+  if (runtime.readiness === 'flagged-only') return 'Runtime partial';
   if (runtime.status === 'outdated') return 'Update Despia';
   if (runtime.status === 'unavailable') return 'Preview UI';
   return 'Preview';
