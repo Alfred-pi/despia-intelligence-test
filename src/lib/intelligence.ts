@@ -75,6 +75,54 @@ export function subscribeRuntimeReport(fn: (r: RuntimeReport) => void): () => vo
   };
 }
 
+type LogFn = (entry: { source: string; message: string; stack?: string }) => void;
+
+function debugLog(message: string, extra?: Record<string, unknown>) {
+  try {
+    const fn = (window as unknown as { __debugLog?: LogFn }).__debugLog;
+    if (fn) {
+      fn({
+        source: 'intelligence',
+        message,
+        stack: extra ? JSON.stringify(extra, null, 2) : undefined,
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function snapshotIntelligenceState(): Record<string, unknown> {
+  if (typeof window === 'undefined') return { window: 'undefined' };
+  const intel = (window as unknown as { intelligence?: Record<string, unknown> }).intelligence;
+  const keys = intel ? Object.keys(intel) : [];
+  const registrarStatus: Record<string, string> = {};
+  for (const reg of [
+    'onDownloadStart',
+    'onDownloadProgress',
+    'onDownloadEnd',
+    'onDownloadError',
+    'onRemoveSuccess',
+    'onRemoveError',
+    'onRemoveAllSuccess',
+    'onRemoveAllError',
+  ]) {
+    registrarStatus[reg] = typeof (intel as Record<string, unknown> | undefined)?.[reg];
+  }
+  const availableModels = (intel as { availableModels?: unknown })?.availableModels;
+  const installedModels = (intel as { installedModels?: unknown })?.installedModels;
+  return {
+    nativeRuntime: (window as unknown as { native_runtime?: string }).native_runtime ?? null,
+    intelligenceKeys: keys,
+    registrars: registrarStatus,
+    availableModelsCount: Array.isArray(availableModels) ? availableModels.length : 'not-array',
+    installedModelsCount: Array.isArray(installedModels) ? installedModels.length : 'not-array',
+    onMLToken: typeof (window as unknown as Record<string, unknown>).onMLToken,
+    onMLComplete: typeof (window as unknown as Record<string, unknown>).onMLComplete,
+    onMLError: typeof (window as unknown as Record<string, unknown>).onMLError,
+  };
+}
+
 let probedOnce = false;
 export async function probeRuntime(): Promise<RuntimeReport> {
   if (probedOnce) return runtimeReport;
@@ -216,7 +264,9 @@ export function downloadModel(modelId: string, callbacks?: DownloadCallbacks): v
   if (isLive()) {
     let settled = false;
     let lastProgressAt = Date.now();
-    const STALL_TIMEOUT_MS = 90_000;
+    let firstProgressSeen = false;
+    const FIRST_PROGRESS_TIMEOUT_MS = 30_000;
+    const STALL_TIMEOUT_MS = 60_000;
 
     const wrapped: DownloadCallbacks = {
       onStart: () => {
@@ -225,6 +275,7 @@ export function downloadModel(modelId: string, callbacks?: DownloadCallbacks): v
       },
       onProgress: (pct) => {
         lastProgressAt = Date.now();
+        firstProgressSeen = true;
         callbacks?.onProgress?.(pct);
       },
       onEnd: () => {
@@ -238,15 +289,16 @@ export function downloadModel(modelId: string, callbacks?: DownloadCallbacks): v
     };
     realIntel.models.download(modelId, wrapped);
 
-    // Stall watchdog: if no onProgress for STALL_TIMEOUT_MS, check whether the
-    // model showed up in installed() (the native side may finalize without
-    // emitting onEnd through our channel) and otherwise surface an error.
+    // Watchdog: if first progress doesn't arrive in 30s OR no progress for
+    // 60s after starting, check installed() then surface an explicit error.
     const watchdog = window.setInterval(async () => {
       if (settled) {
         window.clearInterval(watchdog);
         return;
       }
-      if (Date.now() - lastProgressAt < STALL_TIMEOUT_MS) return;
+      const since = Date.now() - lastProgressAt;
+      const limit = firstProgressSeen ? STALL_TIMEOUT_MS : FIRST_PROGRESS_TIMEOUT_MS;
+      if (since < limit) return;
       window.clearInterval(watchdog);
       try {
         const installed = await realIntel.models.installed();
@@ -260,11 +312,15 @@ export function downloadModel(modelId: string, callbacks?: DownloadCallbacks): v
       }
       if (!settled) {
         settled = true;
+        const reason = firstProgressSeen
+          ? `No progress for ${Math.round(STALL_TIMEOUT_MS / 1000)}s`
+          : `No response from runtime in ${Math.round(FIRST_PROGRESS_TIMEOUT_MS / 1000)}s`;
+        debugLog(`Download stalled for ${modelId}: ${reason}`, snapshotIntelligenceState());
         callbacks?.onError?.(
-          'Download stalled — the native runtime did not report progress. The model may not be supported in this build.',
+          `${reason}. The native runtime accepted the download URL but did not stream events. The model "${modelId}" may not be wired in this Despia build.`,
         );
       }
-    }, 5000);
+    }, 3000);
     return;
   }
   callbacks?.onStart?.();

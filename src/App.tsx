@@ -9,6 +9,7 @@ import {
   listInstalledModels,
   onDownloadEvent,
   probeRuntime,
+  snapshotIntelligenceState,
   subscribeRuntimeReport,
   type RuntimeReport,
 } from '@/lib/intelligence';
@@ -30,6 +31,23 @@ export default function App() {
     void (async () => {
       await hydrate();
       await probeRuntime();
+      // Push a runtime snapshot into the debug overlay so the state of
+      // window.intelligence registrars is visible from inside the app.
+      try {
+        const fn = (window as unknown as {
+          __debugLog?: (e: { source: string; message: string; stack?: string }) => void;
+        }).__debugLog;
+        if (fn) {
+          const snap = snapshotIntelligenceState();
+          fn({
+            source: 'intelligence',
+            message: 'Boot snapshot',
+            stack: JSON.stringify(snap, null, 2),
+          });
+        }
+      } catch {
+        // ignore
+      }
       // If we are now live but the active model (often a mock leftover)
       // is not actually installed, reset it so the user picks a real one.
       const store = useChatStore.getState();
