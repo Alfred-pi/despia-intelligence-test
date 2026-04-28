@@ -160,20 +160,34 @@ function onlyText(models: Model[]): Model[] {
   return models.filter((m) => !m.category || m.category === 'text');
 }
 
-const AVAILABLE_POLL_DEADLINE_MS = 6000;
-const AVAILABLE_POLL_INTERVAL_MS = 200;
+const AVAILABLE_POLL_DEADLINE_MS = 8000;
+const AVAILABLE_POLL_INTERVAL_MS = 50;
 
 // The SDK reads window.intelligence.availableModels synchronously and returns []
-// if the native runtime has not populated it yet. Poll for a few seconds before
-// falling back to the curated catalog so the picker has something to show.
+// if the native runtime has not populated it yet. Poll the variable directly
+// (cheaper than going through the SDK shim) and nudge the runtime once with a
+// query=available command in case the native side waits for that signal.
 async function pollAvailableModels(): Promise<Model[]> {
+  // Best-effort nudge: ask the native side to populate availableModels.
+  try {
+    if (typeof window !== 'undefined') {
+      (window as unknown as { despia?: string }).despia =
+        'intelligence://models?query=available';
+    }
+  } catch {
+    // ignore
+  }
+
   const deadline = Date.now() + AVAILABLE_POLL_DEADLINE_MS;
   while (Date.now() < deadline) {
-    const list = await realIntel.models.available();
+    const list = (window as unknown as { intelligence?: { availableModels?: Model[] } })
+      ?.intelligence?.availableModels;
     if (Array.isArray(list) && list.length > 0) return list;
     await new Promise<void>((r) => setTimeout(r, AVAILABLE_POLL_INTERVAL_MS));
   }
-  return [];
+  // Last call through the SDK in case it normalized something
+  const final = await realIntel.models.available();
+  return Array.isArray(final) ? final : [];
 }
 
 export async function listAvailableModels(): Promise<Model[]> {
@@ -200,7 +214,57 @@ export async function listInstalledModels(): Promise<Model[]> {
 
 export function downloadModel(modelId: string, callbacks?: DownloadCallbacks): void {
   if (isLive()) {
-    realIntel.models.download(modelId, callbacks);
+    let settled = false;
+    let lastProgressAt = Date.now();
+    const STALL_TIMEOUT_MS = 90_000;
+
+    const wrapped: DownloadCallbacks = {
+      onStart: () => {
+        lastProgressAt = Date.now();
+        callbacks?.onStart?.();
+      },
+      onProgress: (pct) => {
+        lastProgressAt = Date.now();
+        callbacks?.onProgress?.(pct);
+      },
+      onEnd: () => {
+        settled = true;
+        callbacks?.onEnd?.();
+      },
+      onError: (err) => {
+        settled = true;
+        callbacks?.onError?.(err);
+      },
+    };
+    realIntel.models.download(modelId, wrapped);
+
+    // Stall watchdog: if no onProgress for STALL_TIMEOUT_MS, check whether the
+    // model showed up in installed() (the native side may finalize without
+    // emitting onEnd through our channel) and otherwise surface an error.
+    const watchdog = window.setInterval(async () => {
+      if (settled) {
+        window.clearInterval(watchdog);
+        return;
+      }
+      if (Date.now() - lastProgressAt < STALL_TIMEOUT_MS) return;
+      window.clearInterval(watchdog);
+      try {
+        const installed = await realIntel.models.installed();
+        if (Array.isArray(installed) && installed.some((m) => m.id === modelId)) {
+          settled = true;
+          callbacks?.onEnd?.();
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      if (!settled) {
+        settled = true;
+        callbacks?.onError?.(
+          'Download stalled — the native runtime did not report progress. The model may not be supported in this build.',
+        );
+      }
+    }, 5000);
     return;
   }
   callbacks?.onStart?.();
