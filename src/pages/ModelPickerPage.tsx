@@ -1,17 +1,13 @@
 import { motion, AnimatePresence } from 'framer-motion';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, Download, Trash2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, Download, Trash2, RefreshCw, Smartphone, Sparkles } from 'lucide-react';
 import { useModels } from '@/hooks/useModels';
 import { useChatStore } from '@/store/chat';
 import { DownloadProgress } from '@/components/chat/DownloadProgress';
 import { MODEL_META, type Model } from '@/lib/intelligence';
+import { detectDevice, isModelRecommendedFor, TIER_RANK } from '@/lib/device';
 import { haptic } from '@/lib/haptics';
-
-const TIER_ORDER: Record<'Any' | 'Modern' | 'Flagship', number> = {
-  Any: 0,
-  Modern: 1,
-  Flagship: 2,
-};
 
 export function ModelPickerPage() {
   const navigate = useNavigate();
@@ -20,9 +16,25 @@ export function ModelPickerPage() {
   const setActiveModel = useChatStore((s) => s.setActiveModel);
   const downloads = useChatStore((s) => s.downloads);
 
+  const device = useMemo(() => detectDevice(), []);
   const installedIds = new Set(installed.map((m) => m.id));
+
+  // Group: installed first; then recommended for device tier; then heavier; then unknown.
   const installedSet = available.filter((m) => installedIds.has(m.id));
-  const otherModels = sortByTier(available.filter((m) => !installedIds.has(m.id)));
+  const notInstalled = available.filter((m) => !installedIds.has(m.id));
+  const recommended = sortByFit(
+    notInstalled.filter((m) => {
+      const meta = MODEL_META[m.id];
+      return meta && isModelRecommendedFor(meta.tier, device.tier);
+    }),
+  );
+  const heavier = sortByFit(
+    notInstalled.filter((m) => {
+      const meta = MODEL_META[m.id];
+      return meta && !isModelRecommendedFor(meta.tier, device.tier);
+    }),
+  );
+  const uncategorized = notInstalled.filter((m) => !MODEL_META[m.id]);
 
   const handleSelect = async (id: string) => {
     haptic('success');
@@ -33,16 +45,11 @@ export function ModelPickerPage() {
   return (
     <>
       <header className="ios-header">
-        <button
-          type="button"
-          className="ios-header-btn"
-          onClick={() => navigate(-1)}
-          aria-label="Back"
-        >
+        <button type="button" className="ios-header-btn" onClick={() => navigate(-1)} aria-label="Back">
           <ArrowLeft size={20} strokeWidth={2.4} />
         </button>
         <div className="ios-header-title-static">
-          <span className="ios-header-eyebrow muted">11 models</span>
+          <span className="ios-header-eyebrow muted">{available.length} text models</span>
           <span className="ios-header-title">Models</span>
         </div>
         <button
@@ -65,6 +72,24 @@ export function ModelPickerPage() {
       </header>
 
       <div className="page-scroll">
+        <motion.div
+          className="device-card"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 28 }}
+        >
+          <div className="device-card-icon">
+            <Smartphone size={18} strokeWidth={2.2} />
+          </div>
+          <div className="device-card-text">
+            <div className="device-card-row">
+              <span className="device-card-label">{device.model}</span>
+              <span className={`tier-badge tier-${device.tier.toLowerCase()}`}>{device.tier}</span>
+            </div>
+            <div className="device-card-hint">{device.hint}</div>
+          </div>
+        </motion.div>
+
         {error && (
           <div className="error-card">
             <p>Could not load catalog</p>
@@ -76,9 +101,9 @@ export function ModelPickerPage() {
         <AnimatePresence>
           {installedSet.length > 0 && (
             <motion.section
-              className="model-section"
               key="installed"
-              initial={{ opacity: 0, y: 8 }}
+              className="model-section"
+              initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
             >
@@ -88,6 +113,7 @@ export function ModelPickerPage() {
                   <ModelCard
                     key={model.id}
                     model={model}
+                    deviceTier={device.tier}
                     installed
                     active={activeModelId === model.id}
                     onSelect={() => handleSelect(model.id)}
@@ -102,30 +128,82 @@ export function ModelPickerPage() {
           )}
         </AnimatePresence>
 
-        <section className="model-section">
-          <h2 className="model-section-title">
-            {installedSet.length > 0 ? 'More models' : 'Available'}
-          </h2>
-          <div className="model-section-list">
-            {otherModels.map((model) => {
-              const dl = downloads[model.id];
-              return (
-                <ModelCard
-                  key={model.id}
-                  model={model}
-                  download={dl}
-                  onDownload={() => {
-                    haptic('medium');
-                    download(model.id);
-                  }}
-                />
-              );
-            })}
-            {!loading && otherModels.length === 0 && installedSet.length === 0 && (
-              <div className="empty-soft">No models in the catalog.</div>
-            )}
-          </div>
-        </section>
+        {recommended.length > 0 && (
+          <section className="model-section">
+            <h2 className="model-section-title">
+              <Sparkles size={11} strokeWidth={2.5} className="model-section-icon" />
+              Recommended for your {device.os === 'ios' ? 'iPhone' : device.os === 'android' ? 'Android' : 'device'}
+            </h2>
+            <div className="model-section-list">
+              {recommended.map((model) => {
+                const dl = downloads[model.id];
+                return (
+                  <ModelCard
+                    key={model.id}
+                    model={model}
+                    deviceTier={device.tier}
+                    download={dl}
+                    onDownload={() => {
+                      haptic('medium');
+                      download(model.id);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {heavier.length > 0 && (
+          <section className="model-section">
+            <h2 className="model-section-title">May be slow on your device</h2>
+            <div className="model-section-list">
+              {heavier.map((model) => {
+                const dl = downloads[model.id];
+                return (
+                  <ModelCard
+                    key={model.id}
+                    model={model}
+                    deviceTier={device.tier}
+                    heavy
+                    download={dl}
+                    onDownload={() => {
+                      haptic('medium');
+                      download(model.id);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {uncategorized.length > 0 && (
+          <section className="model-section">
+            <h2 className="model-section-title">Other</h2>
+            <div className="model-section-list">
+              {uncategorized.map((model) => {
+                const dl = downloads[model.id];
+                return (
+                  <ModelCard
+                    key={model.id}
+                    model={model}
+                    deviceTier={device.tier}
+                    download={dl}
+                    onDownload={() => {
+                      haptic('medium');
+                      download(model.id);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {!loading && available.length === 0 && !error && (
+          <div className="empty-soft">No models in the catalog.</div>
+        )}
 
         <p className="model-footnote">
           Models download once from Hugging Face and stay on this device.
@@ -138,8 +216,10 @@ export function ModelPickerPage() {
 
 interface CardProps {
   model: Model;
+  deviceTier: 'Any' | 'Modern' | 'Flagship';
   installed?: boolean;
   active?: boolean;
+  heavy?: boolean;
   download?: { progress: number; status: 'starting' | 'downloading' | 'done' | 'error'; error?: string };
   onSelect?: () => void;
   onRemove?: () => void;
@@ -148,8 +228,10 @@ interface CardProps {
 
 function ModelCard({
   model,
+  deviceTier,
   installed,
   active,
+  heavy,
   download,
   onSelect,
   onRemove,
@@ -160,7 +242,7 @@ function ModelCard({
 
   return (
     <motion.div
-      className={`model-card ${active ? 'is-active' : ''}`}
+      className={`model-card ${active ? 'is-active' : ''} ${heavy ? 'is-heavy' : ''}`}
       whileTap={installed ? { scale: 0.985 } : undefined}
     >
       <button
@@ -172,7 +254,14 @@ function ModelCard({
         <div className="model-card-text">
           <div className="model-card-row">
             <span className="model-card-name">{model.name}</span>
-            {meta && <span className={`tier-badge tier-${meta.tier.toLowerCase()}`}>{meta.tier}</span>}
+            {meta && (
+              <span className={`tier-badge tier-${meta.tier.toLowerCase()}`}>
+                {meta.tier}
+              </span>
+            )}
+            {meta && TIER_RANK[meta.tier] > TIER_RANK[deviceTier] && (
+              <span className="tier-warn">heavy</span>
+            )}
           </div>
           <div className="model-card-meta">
             <code>{model.id}</code>
@@ -222,11 +311,13 @@ function ModelCard({
   );
 }
 
-function sortByTier(models: Model[]): Model[] {
+function sortByFit(models: Model[]): Model[] {
   return [...models].sort((a, b) => {
-    const ta = MODEL_META[a.id]?.tier ?? 'Modern';
-    const tb = MODEL_META[b.id]?.tier ?? 'Modern';
-    return TIER_ORDER[ta] - TIER_ORDER[tb];
+    const ma = MODEL_META[a.id];
+    const mb = MODEL_META[b.id];
+    if (!ma || !mb) return 0;
+    if (ma.tier !== mb.tier) return TIER_RANK[ma.tier] - TIER_RANK[mb.tier];
+    return ma.sizeMB - mb.sizeMB;
   });
 }
 

@@ -155,15 +155,25 @@ function isLive() {
   return realIntel.runtime.ok;
 }
 
+function onlyText(models: Model[]): Model[] {
+  return models.filter((m) => m.category === 'text' || m.category === 'text');
+}
+
 export async function listAvailableModels(): Promise<Model[]> {
-  if (isLive()) return realIntel.models.available();
+  if (isLive()) {
+    const live = await realIntel.models.available();
+    if (Array.isArray(live) && live.length > 0) return onlyText(live);
+    // Runtime is live but the SDK gave us no catalog yet — fall back to the
+    // curated text-model list so the picker has something to show.
+    return MOCK_CATALOG;
+  }
   return MOCK_CATALOG;
 }
 
 export async function listInstalledModels(): Promise<Model[]> {
   if (isLive()) {
     const r = await realIntel.models.installed();
-    return Array.isArray(r) ? r : [];
+    return Array.isArray(r) ? onlyText(r) : [];
   }
   return MOCK_CATALOG.filter((m) => mockInstalled.has(m.id));
 }
@@ -227,20 +237,63 @@ export function runStream(
   onUpdate: (state: StreamState) => void,
 ): () => void {
   if (isLive()) {
+    let settled = false;
+    let firstTokenTimer: number | undefined;
+    let staleTimer: number | undefined;
+    const FIRST_TOKEN_TIMEOUT_MS = 25_000;
+    const STALE_TIMEOUT_MS = 90_000;
+    const fail = (code: number, message: string) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(firstTokenTimer);
+      window.clearTimeout(staleTimer);
+      onUpdate({ status: 'error', text: '', error: { code, message } });
+    };
+    const succeed = (text: string) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(firstTokenTimer);
+      window.clearTimeout(staleTimer);
+      onUpdate({ status: 'done', text });
+    };
+
     const handle = realIntel.run(
       { type: 'text', stream: true, ...params },
       {
-        stream: (chunk) => onUpdate({ status: 'streaming', text: chunk }),
-        complete: (text) => onUpdate({ status: 'done', text }),
-        error: (err) =>
-          onUpdate({
-            status: 'error',
-            text: '',
-            error: { code: err.code, message: err.message },
-          }),
+        stream: (chunk) => {
+          if (settled) return;
+          window.clearTimeout(firstTokenTimer);
+          window.clearTimeout(staleTimer);
+          staleTimer = window.setTimeout(
+            () => fail(-1, 'No new tokens for 90s — the model may be stuck.'),
+            STALE_TIMEOUT_MS,
+          );
+          onUpdate({ status: 'streaming', text: chunk });
+        },
+        complete: (text) => succeed(text),
+        error: (err) => fail(err.code, err.message),
       },
     );
+
+    if (!handle.ok) {
+      const status = (handle as { status?: string }).status ?? 'unavailable';
+      const message = (handle as { message?: string }).message ?? `Runtime not ready (${status}).`;
+      fail(-2, message);
+      return () => {};
+    }
+
+    firstTokenTimer = window.setTimeout(
+      () =>
+        fail(
+          -3,
+          'No response in 25s. The model may not be installed, or the runtime did not accept the call.',
+        ),
+      FIRST_TOKEN_TIMEOUT_MS,
+    );
+
     return () => {
+      window.clearTimeout(firstTokenTimer);
+      window.clearTimeout(staleTimer);
       if (handle.ok) handle.cancel();
     };
   }
